@@ -1,13 +1,10 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_SUPABASE_URL:https://dnnfjvvepshllqwrbzba.supabase.co
-  readonly VITE_SUPABASE_ANON_KEY: sb_publishable_j6GpC4hzWcvqag-lgY_V-w_2fyHozMT
+  readonly VITE_SUPABASE_URL: string;
+  readonly VITE_SUPABASE_ANON_KEY: string;
+}
 
 interface ImportMeta {
-  readonly env: sb_secret_a3SULjSd_3l_6Rd9QyzzZA_eMuxjeec
+  readonly env: ImportMetaEnv;
 }
-// SUPABASE_URL=https://dnnfjvvepshllqwrbzba.supabase.co
-// SUPABASE_PUBLISHABLE_KEY=sb_publishable_j6GpC4hzWcvqag-lgY_V-w_2fyHozMT
-// SUPABASE_SECRET_KEY=sb_secret_a3SULjSd_3l_6Rd9QyzzZA_eMuxjeec
-// SUPABASE_JWKS_URL=https://dnnfjvvepshllqwrbzba.supabase.co/auth/v1/.well-known/jwks.json
