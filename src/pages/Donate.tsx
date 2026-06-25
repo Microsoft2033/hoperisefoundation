@@ -1,8 +1,7 @@
 // src/pages/Donate.tsx
 import React, { useState, useCallback } from 'react';
 import {
-  Heart, Shield, CheckCircle, CreditCard,
-  Smartphone, Loader2, Bitcoin, Building2,
+  Heart, Shield, CheckCircle, CreditCard, Loader2, Bitcoin, Building2,
   Copy, ExternalLink, AlertCircle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
