@@ -60,13 +60,13 @@ const AdminLogin: React.FC = () => {
 
         {/* Form Card */}
         <div className="bg-gray-800 rounded-3xl border border-gray-700 p-8 shadow-2xl">
-          <div className="flex items-center space-x-2 bg-blue-900/30 border border-blue-800/50 rounded-xl p-4 mb-6">
+          {/* <div className="flex items-center space-x-2 bg-blue-900/30 border border-blue-800/50 rounded-xl p-4 mb-6">
             <Shield className="w-5 h-5 text-blue-400 flex-shrink-0" />
             <div>
               <p className="text-blue-300 text-xs font-medium">Demo Credentials</p>
               <p className="text-blue-200 text-xs">Email: admin@hoperise.org | Password: Admin@123</p>
             </div>
-          </div>
+          </div> */}
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>

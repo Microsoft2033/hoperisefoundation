@@ -1,10 +1,11 @@
-
-
+// src/pages/admin/AdminSettings.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Database, Shield, Bell, Globe,
   Loader2, Save, RefreshCw, User,
-  Eye, EyeOff, CheckCircle
+  Eye, EyeOff, CheckCircle, CreditCard,
+  Building2, Bitcoin, ToggleLeft, ToggleRight,
+  AlertCircle, Copy, Edit3
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '@/lib/supabase';
@@ -32,8 +33,198 @@ interface PasswordForm {
   confirm_password: string;
 }
 
+type PaymentMethodType = 'stripe' | 'paypal' | 'bank_transfer' | 'crypto';
+
+interface PaymentMethodRecord {
+  id: string;
+  method_type: PaymentMethodType;
+  is_enabled: boolean;
+  details: Record<string, any>;
+  updated_at: string;
+}
+
+interface FieldConfig {
+  key: string;
+  label: string;
+  type: 'text' | 'email' | 'textarea' | 'password';
+  placeholder?: string;
+  sensitive?: boolean;
+}
+
 // ============================================================
-// TOGGLE COMPONENT
+// CONSTANTS — Payment field definitions
+// ============================================================
+
+const PAYMENT_FIELD_CONFIGS: Record<PaymentMethodType, FieldConfig[]> = {
+  stripe: [
+    {
+      key: 'publishable_key',
+      label: 'Publishable Key',
+      type: 'text',
+      placeholder: 'pk_live_...',
+      sensitive: true,
+    },
+    {
+      key: 'description',
+      label: 'Description shown to donors',
+      type: 'textarea',
+      placeholder: 'Pay securely with your credit or debit card',
+    },
+    {
+      key: 'accepted_cards',
+      label: 'Accepted Cards (comma-separated)',
+      type: 'text',
+      placeholder: 'Visa, Mastercard, Amex, Discover',
+    },
+  ],
+  paypal: [
+    {
+      key: 'business_email',
+      label: 'PayPal Business Email',
+      type: 'email',
+      placeholder: 'donations@yourorg.org',
+    },
+    {
+      key: 'description',
+      label: 'Description shown to donors',
+      type: 'textarea',
+      placeholder: 'Pay using your PayPal account',
+    },
+    {
+      key: 'paypal_link',
+      label: 'PayPal.me Link',
+      type: 'text',
+      placeholder: 'https://paypal.me/yourorg',
+    },
+  ],
+  bank_transfer: [
+    {
+      key: 'bank_name',
+      label: 'Bank Name',
+      type: 'text',
+      placeholder: 'First National Bank',
+    },
+    {
+      key: 'account_name',
+      label: 'Account Name',
+      type: 'text',
+      placeholder: 'Your Organization Name',
+    },
+    {
+      key: 'account_number',
+      label: 'Account Number',
+      type: 'text',
+      placeholder: '1234567890',
+      sensitive: true,
+    },
+    {
+      key: 'routing_number',
+      label: 'Routing / Sort Code',
+      type: 'text',
+      placeholder: '021000021',
+      sensitive: true,
+    },
+    {
+      key: 'swift_code',
+      label: 'SWIFT / BIC Code',
+      type: 'text',
+      placeholder: 'FNBAUS33',
+    },
+    {
+      key: 'iban',
+      label: 'IBAN',
+      type: 'text',
+      placeholder: 'US12FNBA...',
+      sensitive: true,
+    },
+    {
+      key: 'reference_prefix',
+      label: 'Reference Prefix',
+      type: 'text',
+      placeholder: 'DONATE',
+    },
+    {
+      key: 'instructions',
+      label: 'Donor Instructions',
+      type: 'textarea',
+      placeholder: 'Please include your full name as the payment reference',
+    },
+  ],
+  crypto: [
+    {
+      key: 'bitcoin_address',
+      label: 'Bitcoin (BTC) Wallet Address',
+      type: 'text',
+      placeholder: 'bc1q...',
+      sensitive: true,
+    },
+    {
+      key: 'ethereum_address',
+      label: 'Ethereum (ETH) Wallet Address',
+      type: 'text',
+      placeholder: '0x...',
+      sensitive: true,
+    },
+    {
+      key: 'usdt_address',
+      label: 'USDT Wallet Address',
+      type: 'text',
+      placeholder: '0x...',
+      sensitive: true,
+    },
+    {
+      key: 'usdt_network',
+      label: 'USDT Network',
+      type: 'text',
+      placeholder: 'ERC-20',
+    },
+    {
+      key: 'description',
+      label: 'Description shown to donors',
+      type: 'textarea',
+      placeholder: 'Send crypto to any of the addresses below',
+    },
+    {
+      key: 'confirmation_email',
+      label: 'Confirmation Email',
+      type: 'email',
+      placeholder: 'crypto@yourorg.org',
+    },
+  ],
+};
+
+const PAYMENT_METHOD_META: Record<
+  PaymentMethodType,
+  { label: string; icon: React.ReactNode; color: string; bgColor: string }
+> = {
+  stripe: {
+    label:   'Credit / Debit Card (Stripe)',
+    icon:    <CreditCard className="w-5 h-5" />,
+    color:   'text-indigo-600',
+    bgColor: 'bg-indigo-100',
+  },
+  paypal: {
+    label:   'PayPal',
+    icon:    <span className="font-black text-sm leading-none">PP</span>,
+    color:   'text-blue-600',
+    bgColor: 'bg-blue-100',
+  },
+  bank_transfer: {
+    label:   'Bank Transfer',
+    icon:    <Building2 className="w-5 h-5" />,
+    color:   'text-green-600',
+    bgColor: 'bg-green-100',
+  },
+  crypto: {
+    label:   'Cryptocurrency',
+    icon:    <Bitcoin className="w-5 h-5" />,
+    color:   'text-orange-600',
+    bgColor: 'bg-orange-100',
+  },
+};
+
+// ============================================================
+// REUSABLE TOGGLE
 // ============================================================
 
 const Toggle: React.FC<{
@@ -45,18 +236,20 @@ const Toggle: React.FC<{
     type="button"
     onClick={() => !disabled && onChange(!value)}
     disabled={disabled}
-    className={`relative w-12 h-6 rounded-full transition-colors disabled:opacity-50 ${
+    className={`relative w-12 h-6 rounded-full transition-colors disabled:opacity-50 focus:outline-none ${
       value ? 'bg-green-500' : 'bg-gray-300'
     }`}
   >
-    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-      value ? 'translate-x-7' : 'translate-x-1'
-    }`} />
+    <div
+      className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+        value ? 'translate-x-7' : 'translate-x-1'
+      }`}
+    />
   </button>
 );
 
 // ============================================================
-// SECTION HEADER COMPONENT
+// SECTION HEADER
 // ============================================================
 
 const SectionHeader: React.FC<{
@@ -77,74 +270,419 @@ const SectionHeader: React.FC<{
 );
 
 // ============================================================
-// MAIN COMPONENT
+// SINGLE PAYMENT METHOD EDITOR ROW
+// ============================================================
+
+const PaymentMethodRow: React.FC<{
+  method: PaymentMethodRecord;
+  isSuperAdmin: boolean;
+  onSaved: () => void;
+}> = ({ method, isSuperAdmin, onSaved }) => {
+  const meta        = PAYMENT_METHOD_META[method.method_type];
+  const fields      = PAYMENT_FIELD_CONFIGS[method.method_type];
+
+  const [isExpanded,    setIsExpanded]    = useState(false);
+  const [isEnabled,     setIsEnabled]     = useState(method.is_enabled);
+  const [details,       setDetails]       = useState<Record<string, any>>({ ...method.details });
+  const [visibleFields, setVisibleFields] = useState<Record<string, boolean>>({});
+  const [saving,        setSaving]        = useState(false);
+
+  // Keep local state in sync if parent refetches
+  useEffect(() => {
+    setIsEnabled(method.is_enabled);
+    setDetails({ ...method.details });
+  }, [method]);
+
+  const toggleVisibility = (key: string) =>
+    setVisibleFields(prev => ({ ...prev, [key]: !prev[key] }));
+
+  const handleChange = (key: string, value: string) =>
+    setDetails(prev => ({ ...prev, [key]: value }));
+
+  const handleSave = async () => {
+    if (!isSuperAdmin) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('payment_methods')
+        .update({
+          is_enabled: isEnabled,
+          details,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', method.id);
+
+      if (error) throw error;
+      toast.success(`${meta.label} updated!`);
+      onSaved();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className={`border-2 rounded-2xl overflow-hidden transition-all ${
+        isEnabled ? 'border-gray-200' : 'border-gray-100'
+      }`}
+    >
+      {/* ── Row header ─────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-5 py-4 bg-white">
+
+        {/* Left — icon + labels */}
+        <button
+          type="button"
+          disabled={!isSuperAdmin}
+          onClick={() => isSuperAdmin && setIsExpanded(e => !e)}
+          className="flex items-center gap-3 flex-1 text-left disabled:cursor-default"
+        >
+          <div
+            className={`w-10 h-10 ${meta.bgColor} ${meta.color} rounded-xl
+                        flex items-center justify-center flex-shrink-0`}
+          >
+            {meta.icon}
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-gray-900 text-sm">{meta.label}</p>
+            <p className="text-xs text-gray-400">
+              {fields.length} configurable field{fields.length !== 1 ? 's' : ''}
+            </p>
+          </div>
+
+          {isSuperAdmin && (
+            <Edit3
+              className={`w-4 h-4 mr-3 flex-shrink-0 transition-colors ${
+                isExpanded ? 'text-green-500' : 'text-gray-300'
+              }`}
+            />
+          )}
+        </button>
+
+        {/* Right — enabled badge + toggle */}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <span
+            className={`hidden sm:inline text-xs font-semibold ${
+              isEnabled ? 'text-green-600' : 'text-gray-400'
+            }`}
+          >
+            {isEnabled ? 'Active' : 'Inactive'}
+          </span>
+          <Toggle
+            value={isEnabled}
+            onChange={val => {
+              if (!isSuperAdmin) return;
+              setIsEnabled(val);
+            }}
+            disabled={!isSuperAdmin}
+          />
+        </div>
+      </div>
+
+      {/* ── Expanded fields ─────────────────────────────────── */}
+      {isExpanded && isSuperAdmin && (
+        <div className="border-t border-gray-100 bg-gray-50 px-6 py-5 space-y-5">
+
+          {fields.map(field => (
+            <div key={field.key}>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">
+                {field.label}
+                {field.sensitive && (
+                  <span className="ml-2 normal-case tracking-normal font-normal text-amber-500">
+                    · sensitive
+                  </span>
+                )}
+              </label>
+
+              {field.type === 'textarea' ? (
+                <textarea
+                  rows={2}
+                  placeholder={field.placeholder}
+                  value={details[field.key] ?? ''}
+                  onChange={e => handleChange(field.key, e.target.value)}
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500
+                             focus:outline-none text-sm bg-white resize-none"
+                />
+              ) : (
+                <div className="relative">
+                  <input
+                    type={
+                      field.sensitive && !visibleFields[field.key]
+                        ? 'password'
+                        : field.type
+                    }
+                    placeholder={field.placeholder}
+                    value={details[field.key] ?? ''}
+                    onChange={e => handleChange(field.key, e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500
+                               focus:outline-none text-sm bg-white pr-20"
+                  />
+
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    {/* Copy */}
+                    {details[field.key] && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(details[field.key]);
+                          toast.success(`${field.label} copied!`);
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400
+                                   hover:text-gray-600 transition-colors"
+                        title="Copy value"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {/* Eye */}
+                    {field.sensitive && (
+                      <button
+                        type="button"
+                        onClick={() => toggleVisibility(field.key)}
+                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400
+                                   hover:text-gray-600 transition-colors"
+                        title={visibleFields[field.key] ? 'Hide' : 'Reveal'}
+                      >
+                        {visibleFields[field.key]
+                          ? <EyeOff className="w-3.5 h-3.5" />
+                          : <Eye    className="w-3.5 h-3.5" />
+                        }
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* last-updated hint */}
+          <p className="text-xs text-gray-400">
+            Last saved: {new Date(method.updated_at).toLocaleString()}
+          </p>
+
+          {/* Save button */}
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="w-full py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl
+                       font-semibold text-sm hover:from-green-600 hover:to-emerald-700 transition-all
+                       flex items-center justify-center gap-2 disabled:opacity-70"
+          >
+            {saving ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</>
+            ) : (
+              <><Save className="w-4 h-4" /> Save {meta.label}</>
+            )}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================
+// PAYMENT METHODS SECTION
+// ============================================================
+
+const PaymentMethodsSection: React.FC<{ isSuperAdmin: boolean }> = ({
+  isSuperAdmin,
+}) => {
+  const [methods,  setMethods]  = useState<PaymentMethodRecord[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState<string | null>(null);
+
+  const fetchMethods = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data, error: fetchErr } = await supabase
+        .from('payment_methods')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (fetchErr) throw fetchErr;
+      setMethods(data ?? []);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load payment methods');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchMethods(); }, [fetchMethods]);
+
+  const activeCount = methods.filter(m => m.is_enabled).length;
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+      <div className="flex items-start justify-between mb-6">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center">
+            <CreditCard className="w-5 h-5 text-violet-600" />
+          </div>
+          <div>
+            <h2 className="font-bold text-gray-900">Payment Methods</h2>
+            <p className="text-gray-500 text-xs">
+              Configure details shown to donors on the donation page
+            </p>
+          </div>
+        </div>
+
+        {/* Active badge */}
+        <div className="flex items-center gap-2 bg-green-50 border border-green-100
+                        rounded-xl px-3 py-1.5 flex-shrink-0">
+          <CheckCircle className="w-4 h-4 text-green-500" />
+          <span className="text-green-700 text-xs font-semibold">
+            {activeCount} Active
+          </span>
+        </div>
+      </div>
+
+      {/* Warning banner */}
+      <div className="flex items-start gap-3 bg-amber-50 border border-amber-200
+                      rounded-xl px-4 py-3 mb-5">
+        <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+        <p className="text-amber-700 text-xs leading-relaxed">
+          Payment details are fetched <strong>live from the database</strong> and displayed
+          directly to donors. Double-check all wallet addresses, bank details, and API keys
+          before saving. Sensitive fields are masked — click the eye icon to reveal.
+        </p>
+      </div>
+
+      {/* Loading */}
+      {loading && (
+        <div className="flex items-center justify-center py-10 gap-3 text-gray-400">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="text-sm">Loading payment methods…</span>
+        </div>
+      )}
+
+      {/* Error */}
+      {!loading && error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+          <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-red-800 text-sm font-semibold">Failed to load</p>
+            <p className="text-red-600 text-xs mt-1">{error}</p>
+            <button
+              onClick={fetchMethods}
+              className="mt-2 text-xs text-red-600 underline font-semibold"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Method rows */}
+      {!loading && !error && (
+        <>
+          {methods.length === 0 ? (
+            <div className="text-center py-10 text-gray-400 text-sm">
+              No payment methods found.{' '}
+              <span className="block text-xs mt-1">
+                Run the SQL seed script in your Supabase dashboard first.
+              </span>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {methods.map(m => (
+                <PaymentMethodRow
+                  key={m.id}
+                  method={m}
+                  isSuperAdmin={isSuperAdmin}
+                  onSaved={fetchMethods}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Refresh */}
+          <button
+            onClick={fetchMethods}
+            className="mt-4 w-full flex items-center justify-center gap-2 py-2.5
+                       bg-gray-50 text-gray-600 rounded-xl text-sm font-semibold
+                       hover:bg-gray-100 transition-colors border border-gray-200"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh Payment Methods
+          </button>
+        </>
+      )}
+
+      {/* Read-only notice */}
+      {!isSuperAdmin && (
+        <p className="mt-4 text-center text-xs text-gray-400">
+          Only Super Admins can edit payment details.
+        </p>
+      )}
+    </div>
+  );
+};
+
+// ============================================================
+// MAIN ADMIN SETTINGS COMPONENT
 // ============================================================
 
 const AdminSettings: React.FC = () => {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'super_admin';
 
-  // Organization Settings State
-  const [settings, setSettings] = useState<OrgSettings | null>(null);
+  // Org settings
+  const [settings,        setSettings]        = useState<OrgSettings | null>(null);
   const [loadingSettings, setLoadingSettings] = useState(true);
-  const [savingSettings, setSavingSettings] = useState(false);
+  const [savingSettings,  setSavingSettings]  = useState(false);
 
-  // Admin Profile State
-  const [adminName, setAdminName] = useState('');
-  const [adminEmail, setAdminEmail] = useState('');
+  // Admin profile
+  const [adminName,     setAdminName]     = useState('');
+  const [adminEmail,    setAdminEmail]    = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
 
-  // Password State
+  // Password
   const [passwordForm, setPasswordForm] = useState<PasswordForm>({
     current_password: '',
-    new_password: '',
+    new_password:     '',
     confirm_password: '',
   });
   const [showPasswords, setShowPasswords] = useState({
     current: false,
-    new: false,
+    new:     false,
     confirm: false,
   });
   const [changingPassword, setChangingPassword] = useState(false);
 
-  // Supabase Connection State
+  // DB stats
   const [dbStats, setDbStats] = useState({
-    donors: 0,
-    volunteers: 0,
-    messages: 0,
-    subscribers: 0,
+    donors: 0, volunteers: 0, messages: 0, subscribers: 0,
   });
 
-  // ============================================================
-  // FETCH SETTINGS
-  // ============================================================
+  // ── Fetch org settings + DB stats ──────────────────────────
   const fetchSettings = useCallback(async () => {
     try {
       setLoadingSettings(true);
 
       const [settingsRes, statsRes] = await Promise.all([
-        supabase
-          .from('organization_settings')
-          .select('*')
-          .single(),
-
+        supabase.from('organization_settings').select('*').single(),
         Promise.all([
-          supabase.from('donors').select('id', { count: 'exact', head: true }),
-          supabase.from('volunteers').select('id', { count: 'exact', head: true }),
-          supabase.from('contact_messages').select('id', { count: 'exact', head: true }),
-          supabase.from('newsletter_subscribers').select('id', { count: 'exact', head: true }),
+          supabase.from('donors').select('id',                   { count: 'exact', head: true }),
+          supabase.from('volunteers').select('id',               { count: 'exact', head: true }),
+          supabase.from('contact_messages').select('id',         { count: 'exact', head: true }),
+          supabase.from('newsletter_subscribers').select('id',   { count: 'exact', head: true }),
         ]),
       ]);
 
       if (settingsRes.error) throw settingsRes.error;
       setSettings(settingsRes.data);
 
-      const [donorsRes, volunteersRes, messagesRes, subsRes] = statsRes;
+      const [donorsR, volunteersR, messagesR, subsR] = statsRes;
       setDbStats({
-        donors:      donorsRes.count || 0,
-        volunteers:  volunteersRes.count || 0,
-        messages:    messagesRes.count || 0,
-        subscribers: subsRes.count || 0,
+        donors:      donorsR.count     ?? 0,
+        volunteers:  volunteersR.count ?? 0,
+        messages:    messagesR.count   ?? 0,
+        subscribers: subsR.count       ?? 0,
       });
     } catch (err: any) {
       console.error('Error fetching settings:', err);
@@ -157,20 +695,16 @@ const AdminSettings: React.FC = () => {
   useEffect(() => {
     fetchSettings();
     if (user) {
-      setAdminName(user.name || '');
+      setAdminName(user.name   || '');
       setAdminEmail(user.email || '');
     }
   }, [fetchSettings, user]);
 
-  // ============================================================
-  // SAVE ORG SETTINGS
-  // ============================================================
+  // ── Save org settings ──────────────────────────────────────
   const handleSaveSettings = async () => {
     if (!settings) return;
-
     try {
       setSavingSettings(true);
-
       const { error } = await supabase
         .from('organization_settings')
         .update({
@@ -188,23 +722,17 @@ const AdminSettings: React.FC = () => {
       toast.success('Settings saved successfully!');
       await fetchSettings();
     } catch (err: any) {
-      console.error('Error saving settings:', err);
       toast.error(err.message || 'Failed to save settings');
     } finally {
       setSavingSettings(false);
     }
   };
 
-  // ============================================================
-  // UPDATE ADMIN PROFILE
-  // ============================================================
+  // ── Save admin profile ─────────────────────────────────────
   const handleSaveProfile = async () => {
     if (!user) return;
-
     try {
       setSavingProfile(true);
-
-      // Update admin_users table
       const { error: profileError } = await supabase
         .from('admin_users')
         .update({ name: adminName })
@@ -212,107 +740,84 @@ const AdminSettings: React.FC = () => {
 
       if (profileError) throw profileError;
 
-      // Update email in Supabase Auth if changed
       if (adminEmail !== user.email) {
-        const { error: emailError } = await supabase.auth.updateUser({
-          email: adminEmail,
-        });
+        const { error: emailError } = await supabase.auth.updateUser({ email: adminEmail });
         if (emailError) throw emailError;
-        toast.success('Profile updated! Check your new email to confirm the change.');
+        toast.success('Profile updated! Check your new email to confirm.');
       } else {
         toast.success('Profile updated successfully!');
       }
     } catch (err: any) {
-      console.error('Error updating profile:', err);
       toast.error(err.message || 'Failed to update profile');
     } finally {
       setSavingProfile(false);
     }
   };
 
-  // ============================================================
-  // CHANGE PASSWORD
-  // ============================================================
+  // ── Change password ────────────────────────────────────────
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (passwordForm.new_password !== passwordForm.confirm_password) {
       toast.error('New passwords do not match');
       return;
     }
-
     if (passwordForm.new_password.length < 8) {
       toast.error('Password must be at least 8 characters');
       return;
     }
-
     try {
       setChangingPassword(true);
-
       const { error } = await supabase.auth.updateUser({
         password: passwordForm.new_password,
       });
-
       if (error) throw error;
-
       toast.success('Password changed successfully!');
-      setPasswordForm({
-        current_password: '',
-        new_password: '',
-        confirm_password: '',
-      });
+      setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
     } catch (err: any) {
-      console.error('Error changing password:', err);
       toast.error(err.message || 'Failed to change password');
     } finally {
       setChangingPassword(false);
     }
   };
 
-  // ============================================================
-  // UPDATE SETTINGS LOCAL STATE
-  // ============================================================
-  const updateSettings = (field: keyof OrgSettings, value: any) => {
+  const updateSettings = (field: keyof OrgSettings, value: any) =>
     setSettings(prev => prev ? { ...prev, [field]: value } : null);
-  };
 
-  // ============================================================
-  // LOADING STATE
-  // ============================================================
+  // ── Loading state ──────────────────────────────────────────
   if (loadingSettings) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center space-y-3">
           <Loader2 className="w-10 h-10 text-blue-500 animate-spin mx-auto" />
-          <p className="text-gray-500 text-sm">Loading settings...</p>
+          <p className="text-gray-500 text-sm">Loading settings…</p>
         </div>
       </div>
     );
   }
 
-  // ============================================================
-  // RENDER
-  // ============================================================
+  // ── Render ─────────────────────────────────────────────────
   return (
     <div className="p-6 space-y-6 max-w-3xl">
 
-      {/* Header */}
+      {/* Page header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
         <p className="text-gray-500 text-sm">
           Manage your organization settings and preferences
         </p>
         {!isSuperAdmin && (
-          <div className="mt-2 flex items-center gap-2 text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-2 text-sm">
+          <div className="mt-2 flex items-center gap-2 text-yellow-700 bg-yellow-50
+                          border border-yellow-200 rounded-xl px-4 py-2 text-sm">
             <Shield className="w-4 h-4 flex-shrink-0" />
             <span>
-              You have <strong>read-only</strong> access. Only Super Admins can modify settings.
+              You have <strong>read-only</strong> access.
+              Only Super Admins can modify settings.
             </span>
           </div>
         )}
       </div>
 
-      {/* Admin Profile */}
+      {/* ── Admin Profile ────────────────────────────────────── */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
         <SectionHeader
           icon={<User className="w-5 h-5 text-indigo-600" />}
@@ -330,7 +835,8 @@ const AdminSettings: React.FC = () => {
                 type="text"
                 value={adminName}
                 onChange={e => setAdminName(e.target.value)}
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none"
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl
+                           focus:border-indigo-500 focus:outline-none"
               />
             </div>
             <div>
@@ -341,37 +847,40 @@ const AdminSettings: React.FC = () => {
                 type="email"
                 value={adminEmail}
                 onChange={e => setAdminEmail(e.target.value)}
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none"
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl
+                           focus:border-indigo-500 focus:outline-none"
               />
             </div>
           </div>
+
           <div className="flex items-center gap-3">
             <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize ${
               user?.role === 'super_admin' ? 'bg-purple-100 text-purple-700' :
-              user?.role === 'admin' ? 'bg-blue-100 text-blue-700' :
-              'bg-gray-100 text-gray-700'
+              user?.role === 'admin'       ? 'bg-blue-100   text-blue-700'   :
+                                             'bg-gray-100   text-gray-700'
             }`}>
               {user?.role?.replace('_', ' ')}
             </span>
-            <span className="text-gray-400 text-xs">
-              Member since {user ? 'Active' : '—'}
-            </span>
+            <span className="text-gray-400 text-xs">Account active</span>
           </div>
+
           <button
             onClick={handleSaveProfile}
             disabled={savingProfile}
-            className="flex items-center space-x-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-70 text-sm"
+            className="flex items-center space-x-2 px-5 py-2.5 bg-indigo-600 text-white
+                       rounded-xl font-semibold hover:bg-indigo-700 transition-colors
+                       disabled:opacity-70 text-sm"
           >
             {savingProfile
               ? <Loader2 className="w-4 h-4 animate-spin" />
-              : <Save className="w-4 h-4" />
+              : <Save     className="w-4 h-4" />
             }
-            <span>{savingProfile ? 'Saving...' : 'Save Profile'}</span>
+            <span>{savingProfile ? 'Saving…' : 'Save Profile'}</span>
           </button>
         </div>
       </div>
 
-      {/* Change Password */}
+      {/* ── Change Password ──────────────────────────────────── */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
         <SectionHeader
           icon={<Shield className="w-5 h-5 text-red-600" />}
@@ -380,10 +889,20 @@ const AdminSettings: React.FC = () => {
           subtitle="Update your Supabase Auth password"
         />
         <form onSubmit={handleChangePassword} className="space-y-4">
-          {[
-            { key: 'new_password',     label: 'New Password',     show: showPasswords.new,     toggle: () => setShowPasswords(p => ({ ...p, new: !p.new }))     },
-            { key: 'confirm_password', label: 'Confirm Password', show: showPasswords.confirm, toggle: () => setShowPasswords(p => ({ ...p, confirm: !p.confirm })) },
-          ].map(({ key, label, show, toggle }) => (
+          {([
+            {
+              key:    'new_password',
+              label:  'New Password',
+              show:   showPasswords.new,
+              toggle: () => setShowPasswords(p => ({ ...p, new: !p.new })),
+            },
+            {
+              key:    'confirm_password',
+              label:  'Confirm Password',
+              show:   showPasswords.confirm,
+              toggle: () => setShowPasswords(p => ({ ...p, confirm: !p.confirm })),
+            },
+          ] as const).map(({ key, label, show, toggle }) => (
             <div key={key}>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 {label}
@@ -391,25 +910,32 @@ const AdminSettings: React.FC = () => {
               <div className="relative">
                 <input
                   type={show ? 'text' : 'password'}
-                  value={passwordForm[key as keyof PasswordForm]}
-                  onChange={e => setPasswordForm(prev => ({ ...prev, [key]: e.target.value }))}
+                  value={passwordForm[key]}
+                  onChange={e =>
+                    setPasswordForm(prev => ({ ...prev, [key]: e.target.value }))
+                  }
                   required
                   minLength={8}
-                  className="w-full px-4 py-3 pr-12 border-2 border-gray-200 rounded-xl focus:border-red-400 focus:outline-none"
                   placeholder="••••••••"
+                  className="w-full px-4 py-3 pr-12 border-2 border-gray-200 rounded-xl
+                             focus:border-red-400 focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={toggle}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-4 top-1/2 -translate-y-1/2
+                             text-gray-400 hover:text-gray-600"
                 >
-                  {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {show
+                    ? <EyeOff className="w-4 h-4" />
+                    : <Eye    className="w-4 h-4" />
+                  }
                 </button>
               </div>
             </div>
           ))}
 
-          {/* Password Match Indicator */}
+          {/* Match indicator */}
           {passwordForm.new_password && passwordForm.confirm_password && (
             <div className={`flex items-center gap-2 text-sm ${
               passwordForm.new_password === passwordForm.confirm_password
@@ -433,18 +959,20 @@ const AdminSettings: React.FC = () => {
               !passwordForm.confirm_password ||
               passwordForm.new_password !== passwordForm.confirm_password
             }
-            className="flex items-center space-x-2 px-5 py-2.5 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors disabled:opacity-70 text-sm"
+            className="flex items-center space-x-2 px-5 py-2.5 bg-red-600 text-white
+                       rounded-xl font-semibold hover:bg-red-700 transition-colors
+                       disabled:opacity-70 text-sm"
           >
             {changingPassword
               ? <Loader2 className="w-4 h-4 animate-spin" />
-              : <Shield className="w-4 h-4" />
+              : <Shield  className="w-4 h-4" />
             }
-            <span>{changingPassword ? 'Changing...' : 'Change Password'}</span>
+            <span>{changingPassword ? 'Changing…' : 'Change Password'}</span>
           </button>
         </form>
       </div>
 
-      {/* Organization Settings */}
+      {/* ── Organization Information ─────────────────────────── */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
         <SectionHeader
           icon={<Globe className="w-5 h-5 text-blue-600" />}
@@ -462,7 +990,9 @@ const AdminSettings: React.FC = () => {
               value={settings?.org_name || ''}
               onChange={e => updateSettings('org_name', e.target.value)}
               disabled={!isSuperAdmin}
-              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-500"
+              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl
+                         focus:border-blue-500 focus:outline-none
+                         disabled:bg-gray-50 disabled:text-gray-500"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -475,19 +1005,21 @@ const AdminSettings: React.FC = () => {
                 value={settings?.org_email || ''}
                 onChange={e => updateSettings('org_email', e.target.value)}
                 disabled={!isSuperAdmin}
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-500"
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl
+                           focus:border-blue-500 focus:outline-none
+                           disabled:bg-gray-50 disabled:text-gray-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Phone
-              </label>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Phone</label>
               <input
                 type="tel"
                 value={settings?.org_phone || ''}
                 onChange={e => updateSettings('org_phone', e.target.value)}
                 disabled={!isSuperAdmin}
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-500"
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl
+                           focus:border-blue-500 focus:outline-none
+                           disabled:bg-gray-50 disabled:text-gray-500"
               />
             </div>
           </div>
@@ -499,22 +1031,27 @@ const AdminSettings: React.FC = () => {
               value={settings?.currency || 'USD'}
               onChange={e => updateSettings('currency', e.target.value)}
               disabled={!isSuperAdmin}
-              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none disabled:bg-gray-50 disabled:text-gray-500"
+              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl
+                         focus:outline-none disabled:bg-gray-50 disabled:text-gray-500"
             >
-              <option value="USD">USD — US Dollar</option>
-              <option value="EUR">EUR — Euro</option>
-              <option value="GBP">GBP — British Pound</option>
-              <option value="KES">KES — Kenyan Shilling</option>
-              <option value="NGN">NGN — Nigerian Naira</option>
-              <option value="ZAR">ZAR — South African Rand</option>
-              <option value="CAD">CAD — Canadian Dollar</option>
-              <option value="AUD">AUD — Australian Dollar</option>
+              {[
+                ['USD', 'USD — US Dollar'],
+                ['EUR', 'EUR — Euro'],
+                ['GBP', 'GBP — British Pound'],
+                ['KES', 'KES — Kenyan Shilling'],
+                ['NGN', 'NGN — Nigerian Naira'],
+                ['ZAR', 'ZAR — South African Rand'],
+                ['CAD', 'CAD — Canadian Dollar'],
+                ['AUD', 'AUD — Australian Dollar'],
+              ].map(([val, label]) => (
+                <option key={val} value={val}>{label}</option>
+              ))}
             </select>
           </div>
         </div>
       </div>
 
-      {/* Notification Preferences */}
+      {/* ── Notification Preferences ─────────────────────────── */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
         <SectionHeader
           icon={<Bell className="w-5 h-5 text-orange-600" />}
@@ -523,7 +1060,7 @@ const AdminSettings: React.FC = () => {
           subtitle="Configure when you receive alerts"
         />
         <div className="space-y-4">
-          {[
+          {([
             {
               key:   'email_notifications' as keyof OrgSettings,
               label: 'Email Notifications',
@@ -539,8 +1076,11 @@ const AdminSettings: React.FC = () => {
               label: 'Volunteer Application Alerts',
               desc:  'Get notified for new volunteer applications',
             },
-          ].map(({ key, label, desc }) => (
-            <div key={key} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+          ]).map(({ key, label, desc }) => (
+            <div
+              key={key}
+              className="flex items-center justify-between p-4 bg-gray-50 rounded-xl"
+            >
               <div>
                 <p className="font-medium text-gray-900 text-sm">{label}</p>
                 <p className="text-gray-500 text-xs">{desc}</p>
@@ -555,7 +1095,10 @@ const AdminSettings: React.FC = () => {
         </div>
       </div>
 
-      {/* Database Info */}
+      {/* ── Payment Methods ──────────────────────────────────── */}
+      <PaymentMethodsSection isSuperAdmin={isSuperAdmin} />
+
+      {/* ── Database Configuration ───────────────────────────── */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
         <SectionHeader
           icon={<Database className="w-5 h-5 text-green-600" />}
@@ -564,15 +1107,16 @@ const AdminSettings: React.FC = () => {
           subtitle="Supabase PostgreSQL connection details"
         />
 
-        {/* Connection Status */}
-        <div className="flex items-center gap-2 mb-4 px-4 py-3 bg-green-50 border border-green-200 rounded-xl">
+        {/* Connection indicator */}
+        <div className="flex items-center gap-2 mb-4 px-4 py-3
+                        bg-green-50 border border-green-200 rounded-xl">
           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
           <span className="text-green-700 text-sm font-medium">
             Connected to Supabase PostgreSQL
           </span>
         </div>
 
-        {/* DB Stats */}
+        {/* Stats grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           {[
             { label: 'Donors',      value: dbStats.donors      },
@@ -587,21 +1131,34 @@ const AdminSettings: React.FC = () => {
           ))}
         </div>
 
+        {/* Config rows */}
         <div className="space-y-0">
           {[
-            { label: 'Database',      value: 'Supabase PostgreSQL'                             },
-            { label: 'Supabase URL',  value: import.meta.env.VITE_SUPABASE_URL
-                                        ? '✅ Configured'
-                                        : '❌ Not set (VITE_SUPABASE_URL)'                    },
-            { label: 'Anon Key',      value: import.meta.env.VITE_SUPABASE_ANON_KEY
-                                        ? '✅ Configured'
-                                        : '❌ Not set (VITE_SUPABASE_ANON_KEY)'              },
-            { label: 'Auth Provider', value: 'Supabase Auth (JWT)'                             },
-            { label: 'Last Updated',  value: settings?.updated_at
-                                        ? new Date(settings.updated_at).toLocaleString()
-                                        : '—'                                                  },
+            { label: 'Database',      value: 'Supabase PostgreSQL' },
+            {
+              label: 'Supabase URL',
+              value: import.meta.env.VITE_SUPABASE_URL
+                ? '✅ Configured'
+                : '❌ Not set (VITE_SUPABASE_URL)',
+            },
+            {
+              label: 'Anon Key',
+              value: import.meta.env.VITE_SUPABASE_ANON_KEY
+                ? '✅ Configured'
+                : '❌ Not set (VITE_SUPABASE_ANON_KEY)',
+            },
+            { label: 'Auth Provider', value: 'Supabase Auth (JWT)' },
+            {
+              label: 'Last Updated',
+              value: settings?.updated_at
+                ? new Date(settings.updated_at).toLocaleString()
+                : '—',
+            },
           ].map(({ label, value }) => (
-            <div key={label} className="flex justify-between py-3 border-b border-gray-100 last:border-0">
+            <div
+              key={label}
+              className="flex justify-between py-3 border-b border-gray-100 last:border-0"
+            >
               <span className="text-gray-500 text-sm">{label}</span>
               <span className="font-medium text-gray-900 text-sm text-right max-w-[55%]">
                 {value}
@@ -612,30 +1169,28 @@ const AdminSettings: React.FC = () => {
 
         <button
           onClick={fetchSettings}
-          className="mt-4 w-full flex items-center justify-center gap-2 py-3 bg-gray-50 text-gray-700 rounded-xl font-semibold hover:bg-gray-100 transition-colors text-sm border border-gray-200"
+          className="mt-4 w-full flex items-center justify-center gap-2 py-3
+                     bg-gray-50 text-gray-700 rounded-xl font-semibold
+                     hover:bg-gray-100 transition-colors text-sm border border-gray-200"
         >
           <RefreshCw className="w-4 h-4" />
           Refresh Connection
         </button>
       </div>
 
-      {/* Save All Settings Button */}
+      {/* ── Save All Org Settings ────────────────────────────── */}
       {isSuperAdmin && (
         <button
           onClick={handleSaveSettings}
           disabled={savingSettings}
-          className="w-full py-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold text-lg hover:from-green-600 hover:to-emerald-700 transition-all flex items-center justify-center space-x-3 disabled:opacity-70"
+          className="w-full py-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white
+                     rounded-xl font-bold text-lg hover:from-green-600 hover:to-emerald-700
+                     transition-all flex items-center justify-center space-x-3 disabled:opacity-70"
         >
           {savingSettings ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span>Saving Settings...</span>
-            </>
+            <><Loader2 className="w-5 h-5 animate-spin" /><span>Saving Settings…</span></>
           ) : (
-            <>
-              <Save className="w-5 h-5" />
-              <span>Save All Settings</span>
-            </>
+            <><Save className="w-5 h-5" /><span>Save All Settings</span></>
           )}
         </button>
       )}

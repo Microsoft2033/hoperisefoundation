@@ -1,19 +1,24 @@
-
-
+// src/pages/Donate.tsx
 import React, { useState, useCallback } from 'react';
 import {
-  Heart, Shield, CheckCircle,
-  CreditCard, Smartphone, Loader2
+  Heart, Shield, CheckCircle, CreditCard,
+  Smartphone, Loader2, Bitcoin, Building2,
+  Copy, ExternalLink, AlertCircle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '@/lib/supabase';
+import { usePaymentMethods } from '@/hooks/usePaymentMethods';
+import {
+  PaymentMethodType,
+  BankTransferDetails,
+  CryptoDetails,
+  PaypalDetails,
+} from '@/types/payment';
 
 // ============================================================
 // TYPES
 // ============================================================
-
 type DonationType = 'one-time' | 'monthly' | 'quarterly' | 'annual';
-type PaymentMethod = 'stripe' | 'paypal' | 'mobile_money' | 'bank_transfer';
 type CurrencyCode = 'USD' | 'EUR' | 'GBP' | 'KES' | 'NGN';
 
 interface DonorForm {
@@ -30,66 +35,70 @@ interface DonorForm {
 // ============================================================
 // CONSTANTS
 // ============================================================
-
 const emptyForm: DonorForm = {
-  name: '',
-  email: '',
-  phone: '',
-  message: '',
-  cardNumber: '',
-  cardExpiry: '',
-  cardCvv: '',
-  paypalEmail: '',
+  name: '', email: '', phone: '', message: '',
+  cardNumber: '', cardExpiry: '', cardCvv: '', paypalEmail: '',
 };
 
 const PRESET_AMOUNTS = ['25', '50', '100', '250', '500', '1000'];
 
 const PROGRAMS = [
-  'Education & Scholarships',
-  'Healthcare Services',
-  'Clean Water Initiative',
-  'Women Empowerment',
-  'Environmental Projects',
-  'Where Needed Most',
+  'Education & Scholarships', 'Healthcare Services',
+  'Clean Water Initiative', 'Women Empowerment',
+  'Environmental Projects', 'Where Needed Most',
 ];
 
 const DONATION_TYPES: { id: DonationType; label: string }[] = [
-  { id: 'one-time',  label: 'One-Time'  },
-  { id: 'monthly',   label: 'Monthly'   },
+  { id: 'one-time', label: 'One-Time' },
+  { id: 'monthly', label: 'Monthly' },
   { id: 'quarterly', label: 'Quarterly' },
-  { id: 'annual',    label: 'Annual'    },
+  { id: 'annual', label: 'Annual' },
 ];
 
 const CURRENCIES: { id: CurrencyCode; label: string }[] = [
-  { id: 'USD', label: 'USD — US Dollar'       },
-  { id: 'EUR', label: 'EUR — Euro'            },
-  { id: 'GBP', label: 'GBP — British Pound'  },
+  { id: 'USD', label: 'USD — US Dollar' },
+  { id: 'EUR', label: 'EUR — Euro' },
+  { id: 'GBP', label: 'GBP — British Pound' },
   { id: 'KES', label: 'KES — Kenyan Shilling' },
-  { id: 'NGN', label: 'NGN — Nigerian Naira'  },
-];
-
-const PAYMENT_METHODS = [
-  { id: 'stripe' as PaymentMethod,       label: 'Credit Card',  icon: <CreditCard className="w-5 h-5" />                             },
-  { id: 'paypal' as PaymentMethod,       label: 'PayPal',       icon: <span className="font-bold text-blue-600 text-sm">P</span>     },
-  { id: 'mobile_money' as PaymentMethod, label: 'Mobile Money', icon: <Smartphone className="w-5 h-5" />                            },
+  { id: 'NGN', label: 'NGN — Nigerian Naira' },
 ];
 
 const IMPACT_ITEMS = [
-  { min: 25,   text: 'Provide learning materials for a child for a month'  },
-  { min: 50,   text: 'Provide school supplies for a child for a full year'  },
-  { min: 100,  text: 'Feed a family of four for an entire month'            },
-  { min: 250,  text: 'Fund mobile clinic visits to 5 remote villages'       },
-  { min: 500,  text: 'Train a woman in vocational skills for 3 months'      },
-  { min: 1000, text: 'Install a clean water point for a rural community'    },
+  { min: 25,   text: 'Provide learning materials for a child for a month' },
+  { min: 50,   text: 'Provide school supplies for a child for a full year' },
+  { min: 100,  text: 'Feed a family of four for an entire month' },
+  { min: 250,  text: 'Fund mobile clinic visits to 5 remote villages' },
+  { min: 500,  text: 'Train a woman in vocational skills for 3 months' },
+  { min: 1000, text: 'Install a clean water point for a rural community' },
 ];
 
 const STEP_LABELS = ['Amount', 'Your Info', 'Payment'];
 
+const METHOD_ICONS: Record<PaymentMethodType, React.ReactNode> = {
+  stripe:        <CreditCard className="w-5 h-5" />,
+  paypal:        <span className="font-bold text-blue-600 text-sm">PP</span>,
+  bank_transfer: <Building2 className="w-5 h-5" />,
+  crypto:        <Bitcoin className="w-5 h-5" />,
+};
+
+const METHOD_LABELS: Record<PaymentMethodType, string> = {
+  stripe:        'Credit Card',
+  paypal:        'PayPal',
+  bank_transfer: 'Bank Transfer',
+  crypto:        'Crypto',
+};
+
+// ============================================================
+// HELPERS
+// ============================================================
+const copyToClipboard = (text: string, label: string) => {
+  navigator.clipboard.writeText(text);
+  toast.success(`${label} copied to clipboard!`);
+};
+
 // ============================================================
 // SUB-COMPONENTS
 // ============================================================
-
-// Step Indicator
 const StepIndicator: React.FC<{ step: number }> = ({ step }) => (
   <div className="mb-10">
     <div className="flex items-center justify-center">
@@ -110,10 +119,7 @@ const StepIndicator: React.FC<{ step: number }> = ({ step }) => (
     </div>
     <div className="flex justify-center space-x-20 mt-3 text-xs text-gray-500">
       {STEP_LABELS.map((label, i) => (
-        <span
-          key={label}
-          className={step === i + 1 ? 'text-green-600 font-semibold' : ''}
-        >
+        <span key={label} className={step === i + 1 ? 'text-green-600 font-semibold' : ''}>
           {label}
         </span>
       ))}
@@ -121,43 +127,162 @@ const StepIndicator: React.FC<{ step: number }> = ({ step }) => (
   </div>
 );
 
-// Trust Badges
 const TrustBadges: React.FC = () => (
   <div className="mt-8 flex flex-wrap items-center justify-center gap-6 text-sm text-gray-500">
     {[
-      { icon: <Shield className="w-4 h-4 text-green-500" />,      label: 'SSL Secured'               },
-      { icon: <CheckCircle className="w-4 h-4 text-green-500" />, label: '501(c)(3) Registered'      },
-      { icon: <CheckCircle className="w-4 h-4 text-green-500" />, label: '4-Star Charity Navigator'  },
+      { icon: <Shield className="w-4 h-4 text-green-500" />, label: 'SSL Secured' },
+      { icon: <CheckCircle className="w-4 h-4 text-green-500" />, label: '501(c)(3) Registered' },
+      { icon: <CheckCircle className="w-4 h-4 text-green-500" />, label: '4-Star Charity Navigator' },
     ].map(b => (
       <div key={b.label} className="flex items-center space-x-2">
-        {b.icon}
-        <span>{b.label}</span>
+        {b.icon}<span>{b.label}</span>
       </div>
     ))}
   </div>
 );
 
 // ============================================================
+// PAYMENT METHOD DETAIL PANELS
+// ============================================================
+const BankTransferPanel: React.FC<{
+  details: BankTransferDetails;
+  donorName: string;
+  currency: CurrencyCode;
+  amount: number;
+}> = ({ details, donorName, currency, amount }) => {
+  const reference = `${details.reference_prefix}-${donorName.toUpperCase().replace(/\s+/g, '-')}`;
+  const fields = [
+    { label: 'Bank Name',       value: details.bank_name      },
+    { label: 'Account Name',    value: details.account_name   },
+    { label: 'Account Number',  value: details.account_number },
+    { label: 'Routing Number',  value: details.routing_number },
+    { label: 'SWIFT/BIC',       value: details.swift_code     },
+    { label: 'IBAN',            value: details.iban           },
+    { label: 'Reference',       value: reference              },
+    { label: 'Amount',          value: `${currency} ${amount.toLocaleString()}` },
+  ];
+
+  return (
+    <div className="mb-8 space-y-3">
+      <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-4">
+        <div className="flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+          <p className="text-blue-700 text-sm">{details.instructions}</p>
+        </div>
+      </div>
+
+      <div className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
+        {fields.map(({ label, value }, i) => (
+          <div
+            key={label}
+            className={`flex items-center justify-between px-4 py-3 ${
+              i !== fields.length - 1 ? 'border-b border-gray-200' : ''
+            }`}
+          >
+            <span className="text-xs text-gray-500 font-medium w-36 flex-shrink-0">{label}</span>
+            <span className="text-sm text-gray-800 font-semibold flex-1 text-right break-all">{value}</span>
+            <button
+              type="button"
+              onClick={() => copyToClipboard(value, label)}
+              className="ml-3 p-1.5 rounded-lg hover:bg-gray-200 transition-colors flex-shrink-0"
+              title={`Copy ${label}`}
+            >
+              <Copy className="w-3.5 h-3.5 text-gray-500" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const CryptoPanel: React.FC<{ details: CryptoDetails }> = ({ details }) => {
+  const wallets = [
+    {
+      label: 'Bitcoin (BTC)',
+      address: details.bitcoin_address,
+      color: 'bg-orange-50 border-orange-200',
+      textColor: 'text-orange-700',
+      icon: '₿',
+    },
+    {
+      label: 'Ethereum (ETH)',
+      address: details.ethereum_address,
+      color: 'bg-purple-50 border-purple-200',
+      textColor: 'text-purple-700',
+      icon: 'Ξ',
+    },
+    {
+      label: `USDT (${details.usdt_network})`,
+      address: details.usdt_address,
+      color: 'bg-green-50 border-green-200',
+      textColor: 'text-green-700',
+      icon: '₮',
+    },
+  ];
+
+  return (
+    <div className="mb-8 space-y-3">
+      <p className="text-gray-600 text-sm">{details.description}</p>
+      {wallets.map(({ label, address, color, textColor, icon }) => (
+        <div key={label} className={`rounded-xl border p-4 ${color}`}>
+          <div className="flex items-center justify-between mb-2">
+            <span className={`text-xs font-bold ${textColor} flex items-center gap-1`}>
+              <span className="text-base">{icon}</span> {label}
+            </span>
+            <button
+              type="button"
+              onClick={() => copyToClipboard(address, label)}
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors bg-white rounded-lg px-2 py-1 border border-gray-200"
+            >
+              <Copy className="w-3 h-3" /> Copy
+            </button>
+          </div>
+          <p className="text-xs text-gray-700 font-mono break-all bg-white/70 rounded-lg p-2 border border-white">
+            {address}
+          </p>
+        </div>
+      ))}
+
+      <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+        <div className="flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-yellow-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-yellow-800 text-xs font-semibold mb-1">
+              After sending crypto
+            </p>
+            <p className="text-yellow-700 text-xs">
+              Email your transaction hash to{' '}
+              <a
+                href={`mailto:${details.confirmation_email}`}
+                className="font-medium underline"
+              >
+                {details.confirmation_email}
+              </a>{' '}
+              to confirm your donation and receive a receipt.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
 // SUCCESS PAGE
 // ============================================================
-
 const SuccessPage: React.FC<{
-  name: string;
-  email: string;
-  amount: number;
-  currency: CurrencyCode;
+  name: string; email: string;
+  amount: number; currency: CurrencyCode;
   onReset: () => void;
 }> = ({ name, email, amount, currency, onReset }) => {
   const impactItems = IMPACT_ITEMS.filter(item => amount >= item.min);
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50 flex items-center justify-center px-4 pt-20">
       <div className="max-w-lg w-full bg-white rounded-3xl shadow-xl p-10 text-center">
-        {/* Icon */}
         <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
           <CheckCircle className="w-12 h-12 text-green-500" />
         </div>
-
         <h2 className="text-3xl font-bold text-gray-900 font-serif mb-4">
           Thank You, {name}!
         </h2>
@@ -171,10 +296,7 @@ const SuccessPage: React.FC<{
         <p className="text-gray-500 text-sm mb-8">
           A receipt has been sent to{' '}
           <span className="font-medium text-indigo-600">{email}</span>.
-          Your contribution will directly fund our programs and change lives.
         </p>
-
-        {/* Impact */}
         {impactItems.length > 0 && (
           <div className="bg-green-50 rounded-2xl p-6 mb-8 text-left">
             <p className="text-green-800 font-medium text-sm mb-3">
@@ -182,10 +304,7 @@ const SuccessPage: React.FC<{
             </p>
             <ul className="space-y-2">
               {impactItems.map(item => (
-                <li
-                  key={item.text}
-                  className="text-green-700 text-sm flex items-start space-x-2"
-                >
+                <li key={item.text} className="text-green-700 text-sm flex items-start space-x-2">
                   <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                   <span>{item.text}</span>
                 </li>
@@ -193,17 +312,13 @@ const SuccessPage: React.FC<{
             </ul>
           </div>
         )}
-
-        {/* Share */}
         <div className="mb-6">
-          <p className="text-gray-500 text-xs mb-3">
-            Help us spread the word
-          </p>
+          <p className="text-gray-500 text-xs mb-3">Help us spread the word</p>
           <div className="flex gap-3 justify-center">
             {[
               {
                 label: '🐦 Twitter',
-                href: `https://twitter.com/intent/tweet?text=I just donated to HopeRise Foundation! Join me in making a difference 💚 #HopeRise #Charity`,
+                href: `https://twitter.com/intent/tweet?text=I just donated to HopeRise Foundation! Join me 💚 #HopeRise`,
                 color: 'bg-sky-50 text-sky-600 hover:bg-sky-100',
               },
               {
@@ -224,7 +339,6 @@ const SuccessPage: React.FC<{
             ))}
           </div>
         </div>
-
         <button
           onClick={onReset}
           className="w-full py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:from-green-600 hover:to-emerald-700 transition-all"
@@ -237,9 +351,8 @@ const SuccessPage: React.FC<{
 };
 
 // ============================================================
-// MAIN COMPONENT
+// MAIN DONATE COMPONENT
 // ============================================================
-
 const Donate: React.FC = () => {
   const [step, setStep] = useState(1);
   const [amount, setAmount] = useState('');
@@ -247,111 +360,71 @@ const Donate: React.FC = () => {
   const [donationType, setDonationType] = useState<DonationType>('one-time');
   const [currency, setCurrency] = useState<CurrencyCode>('USD');
   const [program, setProgram] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('stripe');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('stripe');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [formData, setFormData] = useState<DonorForm>(emptyForm);
 
-  // ============================================================
-  // COMPUTED
-  // ============================================================
+  const { paymentMethods, loading: methodsLoading } = usePaymentMethods();
+
   const finalAmount = customAmount || amount;
   const finalAmountNumber = parseFloat(finalAmount) || 0;
 
-  const handleAmountSelect = (val: string) => {
-    setAmount(val);
-    setCustomAmount('');
-  };
+  const getMethodDetails = (type: PaymentMethodType) =>
+    paymentMethods.find(m => m.method_type === type)?.details;
 
-  const handleCustomAmount = (val: string) => {
-    setCustomAmount(val);
-    setAmount('');
-  };
+  const handleAmountSelect = (val: string) => { setAmount(val); setCustomAmount(''); };
+  const handleCustomAmount = (val: string) => { setCustomAmount(val); setAmount(''); };
 
-  // ============================================================
-  // RESET
-  // ============================================================
   const handleReset = useCallback(() => {
-    setSuccess(false);
-    setStep(1);
-    setAmount('');
-    setCustomAmount('');
-    setProgram('');
-    setPaymentMethod('stripe');
-    setCurrency('USD');
-    setDonationType('one-time');
-    setFormData(emptyForm);
+    setSuccess(false); setStep(1); setAmount(''); setCustomAmount('');
+    setProgram(''); setPaymentMethod('stripe'); setCurrency('USD');
+    setDonationType('one-time'); setFormData(emptyForm);
   }, []);
 
-  // ============================================================
-  // SUBMIT → SUPABASE
-  // ============================================================
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!finalAmount || finalAmountNumber <= 0) {
-      toast.error('Please enter a valid donation amount');
-      return;
+      toast.error('Please enter a valid donation amount'); return;
     }
     if (!formData.name.trim() || !formData.email.trim()) {
-      toast.error('Please provide your name and email');
-      return;
+      toast.error('Please provide your name and email'); return;
     }
-
     setLoading(true);
-
     try {
-      const { error } = await supabase
-        .from('donors')
-        .insert([
-          {
-            name:           formData.name.trim(),
-            email:          formData.email.trim().toLowerCase(),
-            amount:         finalAmountNumber,
-            currency:       currency,
-            payment_method: paymentMethod,
-            donation_type:  donationType,
-            message:        formData.message.trim() || null,
-            status:         'completed',
-            program:        program || null,
-          },
-        ]);
-
+      const { error } = await supabase.from('donors').insert([{
+        name:           formData.name.trim(),
+        email:          formData.email.trim().toLowerCase(),
+        amount:         finalAmountNumber,
+        currency,
+        payment_method: paymentMethod,
+        donation_type:  donationType,
+        message:        formData.message.trim() || null,
+        status:         'pending',
+        program:        program || null,
+      }]);
       if (error) throw error;
-
       setSuccess(true);
       toast.success('🎉 Thank you for your generous donation!');
     } catch (err: any) {
-      console.error('Error saving donation:', err);
-      toast.error(
-        err.message || 'Something went wrong. Please try again.'
-      );
+      toast.error(err.message || 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  // ============================================================
-  // SUCCESS STATE
-  // ============================================================
   if (success) {
     return (
       <SuccessPage
-        name={formData.name}
-        email={formData.email}
-        amount={finalAmountNumber}
-        currency={currency}
+        name={formData.name} email={formData.email}
+        amount={finalAmountNumber} currency={currency}
         onReset={handleReset}
       />
     );
   }
 
-  // ============================================================
-  // RENDER
-  // ============================================================
   return (
     <div className="min-h-screen bg-gray-50 pt-20">
-
       {/* Hero */}
       <section className="bg-gradient-to-br from-green-700 to-emerald-600 py-20">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
@@ -365,9 +438,9 @@ const Donate: React.FC = () => {
           </p>
           <div className="mt-8 grid grid-cols-3 gap-6 max-w-xl mx-auto">
             {[
-              { val: '$50',  label: 'School supplies for 1 child'  },
-              { val: '$100', label: 'Feeds a family for a month'   },
-              { val: '$500', label: 'Healthcare for 10 people'      },
+              { val: '$50',  label: 'School supplies for 1 child' },
+              { val: '$100', label: 'Feeds a family for a month'  },
+              { val: '$500', label: 'Healthcare for 10 people'    },
             ].map(item => (
               <div key={item.val} className="bg-white/10 rounded-xl p-4 backdrop-blur">
                 <div className="text-white font-bold text-xl">{item.val}</div>
@@ -378,28 +451,20 @@ const Donate: React.FC = () => {
         </div>
       </section>
 
-      {/* Form Section */}
+      {/* Form */}
       <section className="py-16">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-
           <StepIndicator step={step} />
-
           <div className="bg-white rounded-3xl shadow-xl p-8">
 
-            {/* ================================================ */}
-            {/* STEP 1: AMOUNT                                    */}
-            {/* ================================================ */}
+            {/* STEP 1 */}
             {step === 1 && (
               <div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-8">
-                  Choose Your Donation
-                </h2>
+                <h2 className="text-2xl font-bold text-gray-900 mb-8">Choose Your Donation</h2>
 
-                {/* Donation Type */}
+                {/* Frequency */}
                 <div className="mb-6">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Donation Frequency
-                  </label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Donation Frequency</label>
                   <div className="grid grid-cols-4 rounded-xl border border-gray-200 overflow-hidden">
                     {DONATION_TYPES.map(dt => (
                       <button
@@ -419,21 +484,17 @@ const Donate: React.FC = () => {
 
                 {/* Currency */}
                 <div className="mb-6">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Currency
-                  </label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Currency</label>
                   <select
                     value={currency}
                     onChange={e => setCurrency(e.target.value as CurrencyCode)}
                     className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none"
                   >
-                    {CURRENCIES.map(c => (
-                      <option key={c.id} value={c.id}>{c.label}</option>
-                    ))}
+                    {CURRENCIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                   </select>
                 </div>
 
-                {/* Preset Amounts */}
+                {/* Presets */}
                 <div className="grid grid-cols-3 gap-3 mb-4">
                   {PRESET_AMOUNTS.map(a => (
                     <button
@@ -476,9 +537,7 @@ const Donate: React.FC = () => {
                     className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none"
                   >
                     <option value="">Where it's needed most</option>
-                    {PROGRAMS.map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
+                    {PROGRAMS.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </div>
 
@@ -502,8 +561,7 @@ const Donate: React.FC = () => {
                 <button
                   onClick={() => {
                     if (!finalAmount || finalAmountNumber <= 0) {
-                      toast.error('Please select or enter a valid amount');
-                      return;
+                      toast.error('Please select or enter a valid amount'); return;
                     }
                     setStep(2);
                   }}
@@ -515,23 +573,16 @@ const Donate: React.FC = () => {
               </div>
             )}
 
-            {/* ================================================ */}
-            {/* STEP 2: DONOR INFO                               */}
-            {/* ================================================ */}
+            {/* STEP 2 */}
             {step === 2 && (
               <div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-8">
-                  Your Information
-                </h2>
+                <h2 className="text-2xl font-bold text-gray-900 mb-8">Your Information</h2>
                 <div className="space-y-5">
                   <div className="grid md:grid-cols-2 gap-5">
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Full Name *
-                      </label>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Full Name *</label>
                       <input
-                        type="text"
-                        required
+                        type="text" required
                         value={formData.name}
                         onChange={e => setFormData({ ...formData, name: e.target.value })}
                         className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none"
@@ -539,12 +590,9 @@ const Donate: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Email Address *
-                      </label>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Email Address *</label>
                       <input
-                        type="email"
-                        required
+                        type="email" required
                         value={formData.email}
                         onChange={e => setFormData({ ...formData, email: e.target.value })}
                         className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none"
@@ -552,7 +600,6 @@ const Donate: React.FC = () => {
                       />
                     </div>
                   </div>
-
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
                       Phone <span className="text-gray-400 font-normal">(optional)</span>
@@ -565,7 +612,6 @@ const Donate: React.FC = () => {
                       placeholder="+1 (555) 000-0000"
                     />
                   </div>
-
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
                       Message <span className="text-gray-400 font-normal">(optional)</span>
@@ -578,14 +624,10 @@ const Donate: React.FC = () => {
                       placeholder="Share why you're donating..."
                     />
                   </div>
-
-                  {/* Tax Notice */}
                   <div className="bg-blue-50 rounded-xl p-4 flex items-start space-x-3">
                     <Shield className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-blue-800 text-sm font-medium">
-                        Tax Deductible Donation
-                      </p>
+                      <p className="text-blue-800 text-sm font-medium">Tax Deductible Donation</p>
                       <p className="text-blue-600 text-xs mt-1">
                         HopeRise Foundation is a registered 501(c)(3) nonprofit.
                         Your donation is tax-deductible to the extent permitted by law.
@@ -593,7 +635,6 @@ const Donate: React.FC = () => {
                     </div>
                   </div>
                 </div>
-
                 <div className="flex gap-4 mt-8">
                   <button
                     onClick={() => setStep(1)}
@@ -604,8 +645,7 @@ const Donate: React.FC = () => {
                   <button
                     onClick={() => {
                       if (!formData.name.trim() || !formData.email.trim()) {
-                        toast.error('Please fill in your name and email');
-                        return;
+                        toast.error('Please fill in your name and email'); return;
                       }
                       setStep(3);
                     }}
@@ -617,58 +657,60 @@ const Donate: React.FC = () => {
               </div>
             )}
 
-            {/* ================================================ */}
-            {/* STEP 3: PAYMENT                                  */}
-            {/* ================================================ */}
+            {/* STEP 3 */}
             {step === 3 && (
               <form onSubmit={handleSubmit}>
-                <h2 className="text-2xl font-bold text-gray-900 mb-1">
-                  Payment Method
-                </h2>
+                <h2 className="text-2xl font-bold text-gray-900 mb-1">Payment Method</h2>
                 <p className="text-gray-500 text-sm mb-8">
                   Total:{' '}
                   <span className="font-bold text-green-600 text-lg">
                     {currency} {finalAmountNumber.toLocaleString()}
                     {donationType !== 'one-time' && (
-                      <span className="text-sm font-normal text-gray-400">
-                        {' '}/ {donationType}
-                      </span>
+                      <span className="text-sm font-normal text-gray-400"> / {donationType}</span>
                     )}
                   </span>
                 </p>
 
-                {/* Payment Method Select */}
-                <div className="grid grid-cols-3 gap-3 mb-8">
-                  {PAYMENT_METHODS.map(pm => (
-                    <button
-                      key={pm.id}
-                      type="button"
-                      onClick={() => setPaymentMethod(pm.id)}
-                      className={`py-4 rounded-xl border-2 flex flex-col items-center space-y-1 transition-all ${
-                        paymentMethod === pm.id
-                          ? 'border-green-500 bg-green-50'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      <div className={paymentMethod === pm.id ? 'text-green-600' : 'text-gray-500'}>
-                        {pm.icon}
-                      </div>
-                      <span className={`text-xs font-medium ${
-                        paymentMethod === pm.id ? 'text-green-700' : 'text-gray-500'
-                      }`}>
-                        {pm.label}
-                      </span>
-                    </button>
-                  ))}
-                </div>
+                {/* Payment Method Selector */}
+                {methodsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-green-500" />
+                    <span className="ml-2 text-gray-500 text-sm">Loading payment methods...</span>
+                  </div>
+                ) : (
+                  <div className={`grid gap-3 mb-8 ${
+                    paymentMethods.length === 2 ? 'grid-cols-2' :
+                    paymentMethods.length === 3 ? 'grid-cols-3' : 'grid-cols-4'
+                  }`}>
+                    {paymentMethods.map(pm => (
+                      <button
+                        key={pm.method_type}
+                        type="button"
+                        onClick={() => setPaymentMethod(pm.method_type)}
+                        className={`py-4 rounded-xl border-2 flex flex-col items-center space-y-1 transition-all ${
+                          paymentMethod === pm.method_type
+                            ? 'border-green-500 bg-green-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <div className={paymentMethod === pm.method_type ? 'text-green-600' : 'text-gray-500'}>
+                          {METHOD_ICONS[pm.method_type]}
+                        </div>
+                        <span className={`text-xs font-medium ${
+                          paymentMethod === pm.method_type ? 'text-green-700' : 'text-gray-500'
+                        }`}>
+                          {METHOD_LABELS[pm.method_type]}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
 
-                {/* Credit Card Fields */}
+                {/* Credit Card */}
                 {paymentMethod === 'stripe' && (
                   <div className="space-y-5 mb-8">
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Card Number
-                      </label>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Card Number</label>
                       <input
                         type="text"
                         placeholder="1234 5678 9012 3456"
@@ -680,9 +722,7 @@ const Donate: React.FC = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-5">
                       <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                          Expiry Date
-                        </label>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">Expiry Date</label>
                         <input
                           type="text"
                           placeholder="MM/YY"
@@ -693,9 +733,7 @@ const Donate: React.FC = () => {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                          CVV
-                        </label>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">CVV</label>
                         <input
                           type="password"
                           placeholder="•••"
@@ -713,38 +751,68 @@ const Donate: React.FC = () => {
                 )}
 
                 {/* PayPal */}
-                {paymentMethod === 'paypal' && (
-                  <div className="mb-8">
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      PayPal Email
-                    </label>
-                    <input
-                      type="email"
-                      placeholder="your@paypal.com"
-                      value={formData.paypalEmail}
-                      onChange={e => setFormData({ ...formData, paypalEmail: e.target.value })}
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none"
-                    />
-                  </div>
-                )}
+                {paymentMethod === 'paypal' && (() => {
+                  const details = getMethodDetails('paypal') as PaypalDetails | undefined;
+                  return (
+                    <div className="mb-8 space-y-4">
+                      {details && (
+                        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+                          <p className="text-blue-800 text-sm font-medium mb-1">PayPal Details</p>
+                          <p className="text-blue-700 text-xs">{details.description}</p>
+                          {details.paypal_link && (
+                            <a
+                              href={details.paypal_link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-3 inline-flex items-center gap-1 text-xs text-blue-600 font-semibold hover:underline"
+                            >
+                              <ExternalLink className="w-3 h-3" /> Pay directly via PayPal
+                            </a>
+                          )}
+                        </div>
+                      )}
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">PayPal Email</label>
+                        <input
+                          type="email"
+                          placeholder="your@paypal.com"
+                          value={formData.paypalEmail}
+                          onChange={e => setFormData({ ...formData, paypalEmail: e.target.value })}
+                          className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-green-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
 
-                {/* Mobile Money */}
-                {paymentMethod === 'mobile_money' && (
-                  <div className="mb-8 bg-orange-50 rounded-xl p-5 border border-orange-100">
-                    <p className="text-orange-800 font-semibold text-sm mb-2">
-                      📱 Mobile Money Instructions
-                    </p>
-                    <p className="text-orange-700 text-xs leading-relaxed">
-                      Send <strong>{currency} {finalAmountNumber.toLocaleString()}</strong> to:{' '}
-                      <strong>+1 (800) HOPERISE</strong>
-                      <br />
-                      Reference:{' '}
-                      <strong>
-                        DONATE-{formData.name.toUpperCase().replace(/\s+/g, '-')}
-                      </strong>
-                    </p>
-                  </div>
-                )}
+                {/* Bank Transfer */}
+                {paymentMethod === 'bank_transfer' && (() => {
+                  const details = getMethodDetails('bank_transfer') as BankTransferDetails | undefined;
+                  return details ? (
+                    <BankTransferPanel
+                      details={details}
+                      donorName={formData.name}
+                      currency={currency}
+                      amount={finalAmountNumber}
+                    />
+                  ) : (
+                    <div className="mb-8 bg-gray-50 rounded-xl p-6 text-center text-gray-500 text-sm">
+                      Loading bank details...
+                    </div>
+                  );
+                })()}
+
+                {/* Crypto */}
+                {paymentMethod === 'crypto' && (() => {
+                  const details = getMethodDetails('crypto') as CryptoDetails | undefined;
+                  return details ? (
+                    <CryptoPanel details={details} />
+                  ) : (
+                    <div className="mb-8 bg-gray-50 rounded-xl p-6 text-center text-gray-500 text-sm">
+                      Loading crypto addresses...
+                    </div>
+                  );
+                })()}
 
                 {/* Security Note */}
                 <div className="bg-gray-50 rounded-xl p-4 mb-6 flex items-center space-x-3">
@@ -755,11 +823,9 @@ const Donate: React.FC = () => {
                   </p>
                 </div>
 
-                {/* Donation Summary */}
+                {/* Summary */}
                 <div className="bg-green-50 rounded-xl p-4 mb-6 border border-green-100">
-                  <h4 className="text-green-800 font-semibold text-sm mb-2">
-                    Donation Summary
-                  </h4>
+                  <h4 className="text-green-800 font-semibold text-sm mb-2">Donation Summary</h4>
                   <div className="space-y-1 text-xs text-green-700">
                     <div className="flex justify-between">
                       <span>Donor</span>
@@ -767,9 +833,7 @@ const Donate: React.FC = () => {
                     </div>
                     <div className="flex justify-between">
                       <span>Amount</span>
-                      <span className="font-medium">
-                        {currency} {finalAmountNumber.toLocaleString()}
-                      </span>
+                      <span className="font-medium">{currency} {finalAmountNumber.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Frequency</span>
@@ -798,22 +862,15 @@ const Donate: React.FC = () => {
                     className="flex-1 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:from-green-600 hover:to-emerald-700 transition-all flex items-center justify-center space-x-2 disabled:opacity-70"
                   >
                     {loading ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>Processing...</span>
-                      </>
+                      <><Loader2 className="w-5 h-5 animate-spin" /><span>Processing...</span></>
                     ) : (
-                      <>
-                        <Heart className="w-5 h-5 fill-white" />
-                        <span>Complete Donation</span>
-                      </>
+                      <><Heart className="w-5 h-5 fill-white" /><span>Complete Donation</span></>
                     )}
                   </button>
                 </div>
               </form>
             )}
           </div>
-
           <TrustBadges />
         </div>
       </section>
