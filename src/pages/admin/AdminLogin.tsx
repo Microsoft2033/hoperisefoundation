@@ -3,7 +3,7 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, Shield, Eye, EyeOff } from 'lucide-react';
+import { Heart,  Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 
