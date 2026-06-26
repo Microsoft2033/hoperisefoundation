@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './context/AuthContext';
 import PublicLayout from './layouts/PublicLayout';
 import AdminLayout from './layouts/AdminLayout';
+
 // Public Pages
 const Home = lazy(() => import('./pages/Home'));
 const About = lazy(() => import('./pages/About'));
@@ -92,6 +93,7 @@ const App: React.FC = () => {
         </Suspense>
       </BrowserRouter>
     </AuthProvider>
+    
   );
 };
 
